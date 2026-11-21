@@ -512,8 +512,9 @@ function blockHtml(el) {
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
     parent.removeChild(mark);
   });
-  clone.querySelectorAll("[data-eh-el]").forEach((n) => n.removeAttribute("data-eh-el"));
+  clone.querySelectorAll("[data-eh-el],[data-eh-pick]").forEach((n) => { n.removeAttribute("data-eh-el"); n.removeAttribute("data-eh-pick"); });
   clone.removeAttribute("data-eh-el");
+  clone.removeAttribute("data-eh-pick");
   clone.normalize();
   return clone.outerHTML;
 }
@@ -629,6 +630,7 @@ function queueEdit(payload) {
 // ------------------------------------------------------------- interactions
 
 function clearPending() {
+  document.querySelectorAll("[data-eh-pick]").forEach((el) => el.removeAttribute("data-eh-pick"));
   pending = null;
   place(els.activeBox, null);
 }
@@ -663,14 +665,27 @@ function settleSelection() {
   return true;
 }
 
-function openElementCompose(container) {
-  if (pending && pending.element === container.el) return;
-  pending = { kind: "element", element: container.el };
-  place(els.activeBox, container.el);
+function openElementCompose(container, add) {
+  // Shift-click grows an open element comment to cover several blocks at once.
+  if (add && pending && pending.kind === "element" && pending.element !== container.el) {
+    const at = pending.extra.findIndex((c) => c.el === container.el);
+    if (at >= 0) pending.extra.splice(at, 1)[0].el.removeAttribute("data-eh-pick");
+    else {
+      pending.extra.push(container);
+      container.el.setAttribute("data-eh-pick", "");
+    }
+  } else {
+    if (pending && pending.element === container.el && !pending.extra.length) return;
+    clearPending();
+    pending = { kind: "element", element: container.el, label: container.label, extra: [] };
+    place(els.activeBox, container.el);
+  }
+  const all = [{ el: pending.element, label: pending.label }, ...pending.extra];
+  const selectors = all.map((c) => cssPath(c.el));
   post("eh:compose", {
     kind: "element",
-    quote: container.label,
-    anchor: { selector: cssPath(container.el), label: container.label },
+    quote: all.map((c) => c.label).join(" + "),
+    anchor: { selector: selectors[0], label: pending.label, ...(all.length > 1 ? { selectors } : {}) },
   });
 }
 
@@ -678,7 +693,7 @@ function openElementCompose(container) {
 function commitPending(id) {
   if (!pending) return;
   if (pending.kind === "element") {
-    if (pending.element && pending.element.isConnected) pending.element.setAttribute("data-eh-el", id);
+    for (const el of [pending.element, ...pending.extra.map((c) => c.el)]) if (el && el.isConnected) el.setAttribute("data-eh-el", id);
   } else {
     const { text, map } = flatten();
     const hit = findQuote(text, pending.context);
@@ -698,9 +713,11 @@ function reanchor(comments) {
       continue;
     }
     if (comment.kind === "element") {
-      const el = comment.anchor && comment.anchor.selector ? document.querySelector(comment.anchor.selector) : null;
+      const a = comment.anchor || {};
+      const found = (a.selectors || (a.selector ? [a.selector] : [])).map((s) => document.querySelector(s)).filter(Boolean);
+      const el = found[0] || null;
       // Re-stamp the marker, or "Jump to" has nothing to find after a reload.
-      if (el) el.setAttribute("data-eh-el", comment.id);
+      for (const hit of found) hit.setAttribute("data-eh-el", comment.id);
       (el ? resolved : orphaned).push(comment.id);
       continue;
     }
@@ -766,6 +783,7 @@ function boot() {
     mark[${MARK_ATTR}]:hover { background: rgba(243,176,0,.5); }
     mark[${MARK_ATTR}].eh-active { background: rgba(255,180,0,.55); }
     body[contenteditable]:focus { outline: none; }
+    [data-eh-pick] { outline: 2px solid rgba(243,176,0,.9); outline-offset: 2px; }
     ::selection { background: rgba(245,196,0,.42); }
   `;
   document.head.appendChild(style);
@@ -782,11 +800,16 @@ function boot() {
 
   document.addEventListener("mouseup", (event) => {
     if (isOurs(event.target) || resizing || Date.now() < suppressUntil) return;
+    const add = event.shiftKey && pending && pending.kind === "element";
     setTimeout(() => {
-      if (settleSelection()) return;
+      if (add) {
+        // Shift-click in an editable page also extends a text selection; drop it.
+        const sel = document.getSelection();
+        if (sel) sel.removeAllRanges();
+      } else if (settleSelection()) return;
       const target = targetFor(event.target);
       if (target) {
-        openElementCompose(target);
+        openElementCompose(target, add);
         return;
       }
       post("eh:dismiss", {});
@@ -1411,10 +1434,14 @@ function boot() {
 
   document.addEventListener("dragover", (event) => {
     if (!dragging) {
-      // External payloads would navigate the frame or paste file:// markup.
+      // Files from the desktop: image files are taken by the drop handler,
+      // which uploads them like a paste. Anything else is refused there.
       if (event.dataTransfer && [...(event.dataTransfer.types || [])].includes("Files")) {
         event.preventDefault();
-        event.dataTransfer.dropEffect = "none";
+        event.dataTransfer.dropEffect = "copy";
+        const range = caretRangeAt(event.clientX, event.clientY);
+        const block = range ? innermostBlock(range.startContainer) : null;
+        place(els.outline, block && !isOurs(block) ? block : null);
       }
       return;
     }
@@ -1461,7 +1488,18 @@ function boot() {
       setTimeout(finalizeImageDrag, 0);
       return;
     }
-    if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) event.preventDefault();
+    const files = event.dataTransfer && event.dataTransfer.files ? [...event.dataTransfer.files] : [];
+    if (!files.length) return;
+    // Never let the browser navigate to a dropped file.
+    event.preventDefault();
+    place(els.outline, null);
+    const caret = caretRangeAt(event.clientX, event.clientY);
+    for (const file of files) if (/^image\//.test(file.type)) uploadImage(file, caret);
+  });
+
+  document.addEventListener("dragleave", (event) => {
+    // The file drag left the page without dropping.
+    if (!dragging && !event.relatedTarget) place(els.outline, null);
   });
 
   document.addEventListener("dragend", () => {
@@ -1609,15 +1647,19 @@ function boot() {
       const caret = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
       for (const item of images) {
         const file = item.getAsFile();
-        if (!file) continue;
-        pasteSeq += 1;
-        const id = `paste_${pasteSeq}`;
-        pendingPastes.set(id, caret);
-        file.arrayBuffer().then((bytes) => post("eh:asset", { id, assetType: file.type, bytes }));
+        if (file) uploadImage(file, caret);
       }
     },
     true
   );
+
+  /** Send one pasted or dropped image to the server; it is inserted at `caret` once saved. */
+  function uploadImage(file, caret) {
+    pasteSeq += 1;
+    const id = `paste_${pasteSeq}`;
+    pendingPastes.set(id, caret);
+    file.arrayBuffer().then((bytes) => post("eh:asset", { id, assetType: file.type, bytes }));
+  }
 
   const insertPastedImage = (id, src, stagedId) => {
     const caret = pendingPastes.get(id);

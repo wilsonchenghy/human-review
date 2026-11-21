@@ -34,7 +34,7 @@ export function serializeDocument(doc) {
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
     parent.removeChild(mark);
   });
-  clone.querySelectorAll("[data-eh-el]").forEach((n) => n.removeAttribute("data-eh-el"));
+  clone.querySelectorAll("[data-eh-el],[data-eh-pick]").forEach((n) => { n.removeAttribute("data-eh-el"); n.removeAttribute("data-eh-pick"); });
   const body = clone.querySelector("body");
   if (body) {
     body.removeAttribute("contenteditable");

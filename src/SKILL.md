@@ -161,6 +161,8 @@ One batch covers every page the user visited, grouped by file or localhost URL.
   tags; `anchor.prefix` and `anchor.suffix` give the surrounding text to
   disambiguate.
 - `kind: "element"` points at a whole block, so `quote` is its label, not body text.
+  When the user shift-clicked several blocks, `quote` joins their labels with
+  ` + ` and `anchor.selectors` lists every one: the comment covers all of them.
 - Copy any `staged_assets` files before you ack: `--ack` deletes them.
 - A batch with only an `overall_note` has an empty `pages` array.
 - Fix every page in `pages`, not just the first.

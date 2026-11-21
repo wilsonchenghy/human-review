@@ -352,6 +352,19 @@ function render() {
           undoBlock(edit.label, edit.kind);
         });
         row.append(undo);
+      } else if (!edit.sent && (state.page.feedbackOnly || state.page.markdown)) {
+        // Nothing on disk to undo: the row is the whole edit, so dropping it is enough.
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "row-undo";
+        remove.textContent = "✕";
+        remove.title = "Drop this edit";
+        remove.setAttribute("aria-label", "Drop this edit");
+        remove.addEventListener("click", (event) => {
+          event.stopPropagation();
+          dropEditRow(edit.label, edit.kind);
+        });
+        row.append(remove);
       }
       rows.append(row);
     }

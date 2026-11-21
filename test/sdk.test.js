@@ -323,3 +323,42 @@ test("a pasted image lands at the caret once the chrome confirms where it was sa
   assert.equal(row.before, "Before the image.");
   assert.match(row.after_html, /<img src="assets\/design-paste-1\.png"/);
 });
+
+test("an image file dragged in from the desktop is uploaded like a paste", { skip }, async () => {
+  const { window, document, posts, fromChrome } = await bootSdk("<h2>Design</h2><p>Before the image.</p>");
+  const p = document.querySelector("p");
+  const drop = (files) => {
+    const event = new window.Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+    p.dispatchEvent(event);
+    return event;
+  };
+
+  assert.equal(drop([{ type: "application/pdf" }]).defaultPrevented, true, "a dropped file never navigates the page");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(!posts.some((m) => m.type === "eh:asset"), "non-image files are ignored");
+
+  assert.equal(drop([{ type: "image/jpeg", arrayBuffer: async () => new ArrayBuffer(4) }]).defaultPrevented, true);
+  for (let i = 0; i < 50 && !posts.some((m) => m.type === "eh:asset"); i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  const asset = posts.find((m) => m.type === "eh:asset");
+  assert.ok(asset, "the bytes go to the chrome to be saved");
+  assert.equal(asset.assetType, "image/jpeg");
+
+  fromChrome({ type: "eh:assetSaved", id: asset.id, src: "assets/design-paste-1.jpg" });
+  assert.ok(document.querySelector('img[src="assets/design-paste-1.jpg"]'), "the image is inserted into the page");
+  assert.ok(posts.some((m) => m.type === "eh:edit"), "and reported as an edit");
+});
+
+test("shift-click adds a second image to one element comment", { skip }, async () => {
+  const { window, document, posts } = await bootSdk('<h2>Arm</h2><div><img alt="a" src="a.png"><img alt="b" src="b.png"></div>');
+  const [a, b] = document.querySelectorAll("img");
+  const click = (el, shiftKey) => el.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, shiftKey }));
+  click(a, false);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  click(b, true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const last = posts.filter((m) => m.type === "eh:compose").at(-1);
+  assert.match(last.quote, / \+ /);
+  assert.equal(last.anchor.selectors.length, 2);
+  assert.ok(b.hasAttribute("data-eh-pick"));
+});

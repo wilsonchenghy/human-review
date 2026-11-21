@@ -1118,7 +1118,13 @@ export function createServer() {
 
         if (action === "revert" && req.method === "POST") {
           const page = store.page(key);
-          if (page.kind === "url") return json(res, 400, { error: "localhost pages have no directly writable file to revert" });
+          // Localhost edits only live in the browser and this queue: drop them and
+          // reload the route so the dev server's version shows again.
+          if (page.kind === "url") {
+            store.clearEdits(key);
+            for (const session of sessionsForKey(key)) emit(session, "reload", { key });
+            return json(res, 200, { page: pageState(key) });
+          }
           if (!page.pristine) return json(res, 400, { error: "nothing to revert to" });
           writePage(key, page.pristine);
           store.clearEdits(key);
