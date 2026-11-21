@@ -440,6 +440,8 @@ const clip = (text, limit = 40) => {
 const pinnedLabels = new WeakMap();
 /** label -> element. Two blocks sharing a label collapse into one row and one overwrites the other. */
 const labelOwners = new Map();
+/** Blocks the page did not load with (Enter makes one). Their `before` is empty. */
+const freshBlocks = new WeakSet();
 
 /**
  * Sibling order as the page loaded. Ordinals in labels ("p 3") come from
@@ -490,6 +492,7 @@ function targetFor(node) {
     for (let n = 2; labelOwners.has(label) && labelOwners.get(label) !== block; n += 1) label = `${base} (${n})`;
     labelOwners.set(label, block);
     pinnedLabels.set(block, label);
+    if (fresh) freshBlocks.add(block);
   }
   return { el: block, label: pinnedLabels.get(block), authored: false };
 }
@@ -1095,8 +1098,10 @@ function boot() {
   const captureOriginal = (el) => {
     tracked.add(el);
     if (!originalText.has(el)) {
-      originalText.set(el, el.textContent);
-      originalHtml.set(el, blockHtml(el));
+      // A fresh block is captured after its first keystroke; that letter is not "before".
+      const fresh = freshBlocks.has(el);
+      originalText.set(el, fresh ? "" : el.textContent);
+      originalHtml.set(el, fresh ? "" : blockHtml(el));
     }
   };
 
@@ -1188,13 +1193,13 @@ function boot() {
         if (original !== undefined && blockHtml(el) === original) dropRow(label, "edited");
         else if (el.textContent.trim() || MEDIA.test(el.tagName) || el.querySelector("img,video")) {
           // A block the page did not load with: say where it sits.
-          const prev = original === undefined ? el.previousElementSibling : null;
+          const prev = original === undefined || freshBlocks.has(el) ? el.previousElementSibling : null;
           emitBlockEdit(el, label, prev ? { placed_after: clip(prev.textContent, 90) } : {});
         }
         else dropRow(label, "edited");
       } else {
         dropRow(label, "edited");
-        if (original !== undefined) queueEdit({ label, kind: "deleted", before: originalText.get(el), after: "", before_html: original, after_html: "" });
+        if (original !== undefined && !freshBlocks.has(el)) queueEdit({ label, kind: "deleted", before: originalText.get(el), after: "", before_html: original, after_html: "" });
       }
     }
   };

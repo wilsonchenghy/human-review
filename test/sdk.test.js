@@ -393,9 +393,11 @@ test("Send reports the page as it looks now: a restored block is not deleted, a 
   fins.remove();
   fins.dispatchEvent(new window.Event("input", { bubbles: true }));
   const added = document.createElement("p");
-  added.textContent = "Brand new.";
+  added.textContent = "B";
   thrust.after(added);
-  select(added.firstChild, 0, added.firstChild, 0);
+  select(added.firstChild, 1, added.firstChild, 1);
+  added.dispatchEvent(new window.Event("beforeinput", { bubbles: true }));
+  added.textContent = "Brand new.";
   added.dispatchEvent(new window.Event("input", { bubbles: true }));
 
   fromChrome({ type: "eh:flush", reconcile: true });
@@ -412,6 +414,7 @@ test("Send reports the page as it looks now: a restored block is not deleted, a 
   assert.equal(live.get("TVC · new p|edited"), "Brand new.", "the new paragraph has its own row");
   const placed = posts.filter((m) => m.type === "eh:edit" && m.label === "TVC · new p").at(-1);
   assert.equal(placed.placed_after, "Thrust.", "and says where it sits");
+  assert.equal(placed.before, "", "its first keystroke is not its original text");
 });
 
 test("shift-click inside the same block extends the text selection instead of picking blocks", { skip }, async () => {
