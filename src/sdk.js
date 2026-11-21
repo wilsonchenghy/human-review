@@ -1052,12 +1052,14 @@ function boot() {
     const target = targetFor(hoverTarget);
     const label = target ? target.label : "Element";
     const before = hoverTarget.textContent;
+    // An image has no text: without its markup the agent can't tell which one went.
+    const beforeHtml = blockHtml(hoverTarget);
     remember({ kind: "deleted", el: hoverTarget, parent: hoverTarget.parentNode, prev: hoverTarget.previousSibling, next: hoverTarget.nextSibling, label });
     hoverTarget.remove();
     hoverTarget = null;
     place(els.outline, null);
     showChip(null);
-    queueEdit({ label, kind: "deleted", before, after: "" });
+    queueEdit({ label, kind: "deleted", before, after: "", before_html: beforeHtml, after_html: "" });
     flushSave();
     post("eh:undoable", { label, kind: "deleted" });
   });

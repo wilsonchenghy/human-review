@@ -417,6 +417,15 @@ test("Send reports the page as it looks now: a restored block is not deleted, a 
   assert.equal(placed.before, "", "its first keystroke is not its original text");
 });
 
+test("deleting an image reports its markup, so the agent knows which image went", { skip }, async () => {
+  const { window, document, posts, shadow } = await bootSdk('<h2>TVC</h2><p><img src="new.svg"></p><p><img src="old.png"></p>');
+  const old = document.querySelectorAll("img")[1];
+  old.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+  shadow.getElementById("chipDelete").click();
+  const row = posts.find((m) => m.type === "eh:edit" && m.kind === "deleted");
+  assert.match(row.before_html, /old\.png/);
+});
+
 test("shift-click inside the same block extends the text selection instead of picking blocks", { skip }, async () => {
   const { window, document, posts } = await bootSdk("<h2>Arm</h2><p>Select a chunk of these words.</p>");
   const p = document.querySelector("p");
