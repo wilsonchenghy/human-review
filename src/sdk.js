@@ -1190,18 +1190,23 @@ function boot() {
       if (els.length !== 1) continue;
       const el = els[0];
       const original = originalHtml.get(el);
+      // Never captured means never typed into (a caret passed through): no row.
+      if (original === undefined) {
+        dropRow(label, "edited");
+        continue;
+      }
       if (el.isConnected) {
         dropRow(label, "deleted");
-        if (original !== undefined && blockHtml(el) === original) dropRow(label, "edited");
+        if (blockHtml(el) === original) dropRow(label, "edited");
         else if (el.textContent.trim() || MEDIA.test(el.tagName) || el.querySelector("img,video")) {
           // A block the page did not load with: say where it sits.
-          const prev = original === undefined || freshBlocks.has(el) ? el.previousElementSibling : null;
+          const prev = freshBlocks.has(el) ? el.previousElementSibling : null;
           emitBlockEdit(el, label, prev ? { placed_after: clip(prev.textContent, 90) } : {});
         }
         else dropRow(label, "edited");
       } else {
         dropRow(label, "edited");
-        if (original !== undefined && !freshBlocks.has(el)) queueEdit({ label, kind: "deleted", before: originalText.get(el), after: "", before_html: original, after_html: "" });
+        if (!freshBlocks.has(el)) queueEdit({ label, kind: "deleted", before: originalText.get(el), after: "", before_html: original, after_html: "" });
       }
     }
   };
@@ -1881,16 +1886,21 @@ function boot() {
     const sel = document.getSelection();
     const node = sel && sel.anchorNode ? sel.anchorNode : event.target;
     const target = targetFor(node);
-    if (target) tracked.add(target.el);
+    // No block to name means nothing the agent could apply; the save still runs.
+    if (!target) {
+      scheduleSave();
+      return;
+    }
+    tracked.add(target.el);
     // Text alone loses formatting-only edits (bold, italic, underline change
     // markup, not textContent), so the block's cleaned HTML travels too.
     queueEdit({
-      label: target ? target.label : "Document body",
+      label: target.label,
       kind: "edited",
-      before: target ? originalText.get(target.el) : undefined,
-      after: target ? target.el.textContent : undefined,
-      before_html: target ? originalHtml.get(target.el) : undefined,
-      after_html: target ? blockHtml(target.el) : undefined,
+      before: originalText.get(target.el),
+      after: target.el.textContent,
+      before_html: originalHtml.get(target.el),
+      after_html: blockHtml(target.el),
     });
     scheduleSave();
   });

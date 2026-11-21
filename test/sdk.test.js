@@ -426,6 +426,28 @@ test("deleting an image reports its markup, so the agent knows which image went"
   assert.match(row.before_html, /old\.png/);
 });
 
+test("a block the caret only passed through is not reported at Send", { skip }, async () => {
+  const { window, document, posts, fromChrome } = await bootSdk("<h2>PID</h2><ul><li><p>Text.</p><p>Equation.</p></li></ul>");
+  const [text, eq] = document.querySelectorAll("p");
+  const range = document.createRange();
+  range.setStart(text.firstChild, 4);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  text.dispatchEvent(new window.Event("beforeinput", { bubbles: true }));
+  text.textContent = "Text!";
+  // The input lands while the selection already sits in the equation.
+  range.setStart(eq.firstChild, 0);
+  eq.dispatchEvent(new window.Event("input", { bubbles: true }));
+  text.dispatchEvent(new window.Event("input", { bubbles: true }));
+  fromChrome({ type: "eh:flush", reconcile: true });
+  const live = new Map();
+  for (const m of posts) {
+    if (m.type === "eh:edit") live.set(m.label, m.after);
+    if (m.type === "eh:dropEdit") live.delete(m.label);
+  }
+  assert.deepEqual([...live.entries()], [["PID · p 1", "Text!"]]);
+});
+
 test("shift-click inside the same block extends the text selection instead of picking blocks", { skip }, async () => {
   const { window, document, posts } = await bootSdk("<h2>Arm</h2><p>Select a chunk of these words.</p>");
   const p = document.querySelector("p");
