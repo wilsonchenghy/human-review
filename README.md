@@ -21,13 +21,13 @@ Then the agent changes the file and you have to check whether it understood ever
 The easiest way to install the skill is to paste this into ChatGPT, Claude Code, Codex, or your favorite coding agent:
 
 ```text
-Install the /human-review skill globally from https://github.com/petergyang/human-review
+Install the /human-review skill globally from https://github.com/wilsonchenghy/human-review
 ```
 
 You can also install it with `npx`:
 
 ```sh
-npx -y human-review setup --global
+npx -y github:wilsonchenghy/human-review setup --global
 ```
 
 ## How to use /human-review
