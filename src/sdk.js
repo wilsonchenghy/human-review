@@ -850,7 +850,8 @@ function boot() {
   // server rendered the page. Keep edit mode on after hydration settles so a
   // real app stays directly editable, not just its initial HTML response.
   keepBodyEditable(document.body);
-  document.body.spellcheck = false;
+  // The browser's own spellcheck: red underline, right-click to correct. Never serialized.
+  document.body.spellcheck = true;
   snapshotOrder();
   baseline = serialize();
   bootSnapshot = baseline;
