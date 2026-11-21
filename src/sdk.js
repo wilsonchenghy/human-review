@@ -228,6 +228,7 @@ function showDropline(drop, pointer, movingLabel) {
 }
 
 function place(box, el, pad = 2) {
+  box.target = el; // the box is position:fixed, so scrolling must re-place it on this
   if (!el || !el.isConnected) {
     box.style.display = "none";
     return;
@@ -1908,6 +1909,7 @@ function boot() {
 
   const reposition = () => {
     place(els.outline, hoverTarget);
+    place(els.activeBox, els.activeBox.target);
     showChip(hoverTarget);
     showMover(moving ? null : hoverMove);
     showGrip(resizing ? resizing.el : hoverMedia);

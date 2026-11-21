@@ -448,6 +448,21 @@ test("a block the caret only passed through is not reported at Send", { skip }, 
   assert.deepEqual([...live.entries()], [["PID · p 1", "Text!"]]);
 });
 
+test("the selected block's outline follows the page when it scrolls", { skip }, async () => {
+  const { window, document, shadow } = await bootSdk("<h2>Arm</h2><p>Pick me.</p>");
+  const p = document.querySelector("p");
+  let top = 100;
+  p.getBoundingClientRect = () => ({ left: 10, top, right: 210, bottom: top + 20, width: 200, height: 20 });
+  p.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const box = shadow.getElementById("activeBox");
+  assert.equal(box.style.top, "98px");
+  top = 40;
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(box.style.top, "38px");
+});
+
 test("shift-click inside the same block extends the text selection instead of picking blocks", { skip }, async () => {
   const { window, document, posts } = await bootSdk("<h2>Arm</h2><p>Select a chunk of these words.</p>");
   const p = document.querySelector("p");
