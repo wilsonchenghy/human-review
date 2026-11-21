@@ -89,6 +89,19 @@ shadow.innerHTML = `
       font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1b1a16;
     }
     .linkbox input::placeholder { color: #a29f95; }
+    .formatbar {
+      position: fixed; z-index: 2147483647; display: none; gap: 2px; padding: 3px;
+      border: 1px solid #e4e2db; border-radius: 8px; background: #fff;
+      box-shadow: 0 4px 16px rgba(27,26,22,.16); pointer-events: auto;
+    }
+    .formatbar button {
+      min-width: 26px; height: 24px; padding: 0 6px; border: none; border-radius: 5px;
+      background: none; color: #1b1a16; cursor: pointer;
+      font: 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .formatbar button:hover { background: #f0eee8; }
+    .formatbar .hl { background: #fff59d; }
+    .formatbar .hl:hover { background: #ffee58; }
     .mover {
       position: fixed; z-index: 2147483647; width: 18px; height: 24px;
       display: none; align-items: center; justify-content: center;
@@ -132,6 +145,11 @@ shadow.innerHTML = `
     <button class="chip" id="linkApply" title="Apply link (&#9166;)" aria-label="Apply link">&#8629;</button>
     <button class="chip danger" id="linkRemove" title="Remove link" aria-label="Remove link">&#10005;</button>
   </div>
+  <div class="formatbar" id="formatbar">
+    <button id="fmtBold" title="Bold (&#8984;B)" aria-label="Bold"><b>B</b></button>
+    <button id="fmtItalic" title="Italic (&#8984;I)" aria-label="Italic"><i>I</i></button>
+    <button id="fmtHighlight" class="hl" title="Highlight" aria-label="Highlight">H</button>
+  </div>
   <div class="mover" id="mover" title="Drag to move this block">&#10303;</div>
   <div class="box dropTarget" id="dropTarget"></div>
   <div class="dropline" id="dropline"></div>
@@ -152,6 +170,10 @@ const mountOverlay = () => {
   els.linkApply = shadow.getElementById("linkApply");
   els.linkRemove = shadow.getElementById("linkRemove");
   els.mover = shadow.getElementById("mover");
+  els.formatbar = shadow.getElementById("formatbar");
+  els.fmtBold = shadow.getElementById("fmtBold");
+  els.fmtItalic = shadow.getElementById("fmtItalic");
+  els.fmtHighlight = shadow.getElementById("fmtHighlight");
   els.dropline = shadow.getElementById("dropline");
   els.dropTarget = shadow.getElementById("dropTarget");
   els.dragLabel = shadow.getElementById("dragLabel");
@@ -251,6 +273,20 @@ function showGrip(el) {
   els.grip.style.display = "block";
   els.grip.style.left = `${r.right - 7}px`;
   els.grip.style.top = `${r.bottom - 7}px`;
+}
+
+/** The bold/italic/highlight bar, floated just above the live text selection. */
+function showFormatbar() {
+  const sel = document.getSelection();
+  const range = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!range || isOurs(range.commonAncestorContainer) || !document.body.contains(range.commonAncestorContainer)) {
+    els.formatbar.style.display = "none";
+    return;
+  }
+  const r = range.getBoundingClientRect();
+  els.formatbar.style.display = "flex";
+  els.formatbar.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 110))}px`;
+  els.formatbar.style.top = `${r.top > 40 ? r.top - 36 : r.bottom + 8}px`;
 }
 
 function showHint(text, x, y) {
@@ -402,6 +438,8 @@ const clip = (text, limit = 40) => {
  * rows keyed on each intermediate wording.
  */
 const pinnedLabels = new WeakMap();
+/** label -> element. Two blocks sharing a label collapse into one row and one overwrites the other. */
+const labelOwners = new Map();
 
 /**
  * Sibling order as the page loaded. Ordinals in labels ("p 3") come from
@@ -442,10 +480,16 @@ function targetFor(node) {
     const parent = block.parentElement;
     const live = parent ? [...parent.children] : [];
     const booted = parent ? bootChildren.get(parent) : null;
-    const siblings = booted && booted.includes(block) ? booted : live;
+    const fresh = booted && !booted.includes(block);
+    const siblings = booted && !fresh ? booted : live;
     const twins = siblings.filter((c) => c.tagName === block.tagName);
-    const ordinal = twins.length > 1 ? ` ${twins.indexOf(block) + 1}` : "";
-    pinnedLabels.set(block, heading ? `${clip(heading, 26)} · ${tag}${ordinal}` : clip(block.textContent, 40) || tag);
+    const ordinal = fresh ? "" : twins.length > 1 ? ` ${twins.indexOf(block) + 1}` : "";
+    const name = `${fresh ? "new " : ""}${tag}${ordinal}`;
+    const base = heading ? `${clip(heading, 26)} · ${name}` : clip(block.textContent, 40) || name;
+    let label = base;
+    for (let n = 2; labelOwners.has(label) && labelOwners.get(label) !== block; n += 1) label = `${base} (${n})`;
+    labelOwners.set(label, block);
+    pinnedLabels.set(block, label);
   }
   return { el: block, label: pinnedLabels.get(block), authored: false };
 }
@@ -615,8 +659,12 @@ function flushEdits() {
   editQueue.clear();
 }
 
+/** label+kind of every row handed to the chrome, so reconcile can retract stale ones. */
+const sentRows = new Set();
+
 function queueEdit(payload) {
   const key = `${payload.label}\u0000${payload.kind}`;
+  sentRows.add(key);
   const queued = editQueue.get(key);
   if (queued && (queued.staged_assets || payload.staged_assets)) {
     const assets = [...(queued.staged_assets || []), ...(payload.staged_assets || [])];
@@ -628,6 +676,12 @@ function queueEdit(payload) {
 }
 
 // ------------------------------------------------------------- interactions
+
+function dropRow(label, kind) {
+  const key = `${label}\u0000${kind}`;
+  editQueue.delete(key);
+  if (sentRows.delete(key)) post("eh:dropEdit", { label, kind });
+}
 
 function clearPending() {
   document.querySelectorAll("[data-eh-pick]").forEach((el) => el.removeAttribute("data-eh-pick"));
@@ -656,6 +710,7 @@ function settleSelection() {
 
   const context = buildContext(text, offsets.start, offsets.end);
   pending = { kind: "selection", context };
+  showFormatbar();
 
   post("eh:compose", {
     kind: "selection",
@@ -800,7 +855,10 @@ function boot() {
 
   document.addEventListener("mouseup", (event) => {
     if (isOurs(event.target) || resizing || Date.now() < suppressUntil) return;
-    const add = event.shiftKey && pending && pending.kind === "element";
+    // Shift-click in another block grows an element comment; in the same
+    // block it is the ordinary "extend the text selection to here".
+    const clicked = event.shiftKey ? targetFor(event.target) : null;
+    const add = event.shiftKey && pending && pending.kind === "element" && !(clicked && clicked.el === pending.element);
     setTimeout(() => {
       if (add) {
         // Shift-click in an editable page also extends a text selection; drop it.
@@ -1032,7 +1090,10 @@ function boot() {
   // beforeinput still sees the untouched wording, so capture it once per block.
   const originalText = new WeakMap();
   const originalHtml = new WeakMap();
+  /** Every block that was edited, so Send can report what the page shows now. */
+  const tracked = new Set();
   const captureOriginal = (el) => {
+    tracked.add(el);
     if (!originalText.has(el)) {
       originalText.set(el, el.textContent);
       originalHtml.set(el, blockHtml(el));
@@ -1102,9 +1163,46 @@ function boot() {
   };
   let affected = null; // targets of a multi-block selection, until the input event reports them
 
+  /**
+   * Rows are written as events happen, so a merge, a split, or a native undo
+   * can leave rows that no longer match the page (a block "deleted" that is
+   * back, an edit that was undone). Before Send, rewrite every tracked
+   * block's rows from the live DOM: the batch must describe the page as the
+   * user sees it.
+   */
+  const reconcile = () => {
+    const byLabel = new Map();
+    for (const el of tracked) {
+      const label = pinnedLabels.get(el) || (el.getAttribute && (el.getAttribute("data-container") || el.getAttribute("data-block")));
+      if (!label) continue;
+      if (!byLabel.has(label)) byLabel.set(label, []);
+      byLabel.get(label).push(el);
+    }
+    for (const [label, els] of byLabel) {
+      // Shared labels (a paragraph that became a list) keep their event rows.
+      if (els.length !== 1) continue;
+      const el = els[0];
+      const original = originalHtml.get(el);
+      if (el.isConnected) {
+        dropRow(label, "deleted");
+        if (original !== undefined && blockHtml(el) === original) dropRow(label, "edited");
+        else if (el.textContent.trim() || MEDIA.test(el.tagName) || el.querySelector("img,video")) {
+          // A block the page did not load with: say where it sits.
+          const prev = original === undefined ? el.previousElementSibling : null;
+          emitBlockEdit(el, label, prev ? { placed_after: clip(prev.textContent, 90) } : {});
+        }
+        else dropRow(label, "edited");
+      } else {
+        dropRow(label, "edited");
+        if (original !== undefined) queueEdit({ label, kind: "deleted", before: originalText.get(el), after: "", before_html: original, after_html: "" });
+      }
+    }
+  };
+
   /** An edit row for a block changed outside the input-event flow (attribute
    * set, link removal, drag move) — the same shape the input listener emits. */
   const emitBlockEdit = (blockEl, fallbackLabel, extra = {}) => {
+    tracked.add(blockEl);
     const connected = blockEl.isConnected;
     const target = connected ? targetFor(blockEl) : null;
     queueEdit({
@@ -1165,8 +1263,74 @@ function boot() {
 
   document.addEventListener("selectionchange", () => {
     if (selectionIsActive()) hideActionControls();
-    else restoreActionControls();
+    else {
+      els.formatbar.style.display = "none";
+      restoreActionControls();
+    }
   });
+
+  // ------------------------------------------------------------- formatting
+
+  const HIGHLIGHT = "rgb(255, 245, 157)";
+
+  /** Bold/italic/highlight the selection. execCommand keeps it on the native undo stack. */
+  const applyFormat = (kind) => {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    if (isOurs(range.commonAncestorContainer)) return;
+    // execCommand fires `input` but not `beforeinput`, so capture by hand.
+    const blocks = blocksInRange(range);
+    for (const block of blocks) captureOriginal(block.el);
+    userEdited = true;
+    affected = blocks.length > 1 ? blocks : null;
+    document.execCommand("styleWithCSS", false, kind === "highlight");
+    if (kind !== "highlight") {
+      document.execCommand(kind);
+    } else {
+      const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+      const existing = start && start.closest(`mark:not([${MARK_ATTR}])`);
+      if (existing) {
+        // Toggle: the selection is inside a highlight already, so lift it.
+        const parent = existing.parentNode;
+        while (existing.firstChild) parent.insertBefore(existing.firstChild, existing);
+        parent.removeChild(existing);
+        parent.normalize();
+      } else {
+        document.execCommand("hiliteColor", false, HIGHLIGHT);
+        // hiliteColor writes <span style="background-color">; a <mark> is what
+        // the agent can translate (==text==, <mark>) and what pages style.
+        for (const block of blocks) {
+          if (!block.el.isConnected) continue;
+          // Chrome puts the color on a fresh <span> or on an existing <b>/<i>.
+          for (const el of block.el.querySelectorAll("[style]")) {
+            if (el.style.backgroundColor !== HIGHLIGHT) continue;
+            el.style.removeProperty("background-color");
+            if (!el.style.length) el.removeAttribute("style");
+            const mark = document.createElement("mark");
+            while (el.firstChild) mark.appendChild(el.firstChild);
+            if (el.tagName === "SPAN" && !el.attributes.length) el.replaceWith(mark);
+            else el.appendChild(mark);
+          }
+        }
+      }
+      document.execCommand("styleWithCSS", false, false);
+    }
+    affected = null;
+    for (const block of blocks) if (block.el.isConnected) emitBlockEdit(block.el, block.label);
+    scheduleSave();
+  };
+
+  for (const [button, kind] of [[els.fmtBold, "bold"], [els.fmtItalic, "italic"], [els.fmtHighlight, "highlight"]]) {
+    // mousedown would collapse the page selection before click runs.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applyFormat(kind);
+      showFormatbar();
+    });
+  }
 
   // ------------------------------------------------------------------ links
 
@@ -1710,6 +1874,7 @@ function boot() {
     const sel = document.getSelection();
     const node = sel && sel.anchorNode ? sel.anchorNode : event.target;
     const target = targetFor(node);
+    if (target) tracked.add(target.el);
     // Text alone loses formatting-only edits (bold, italic, underline change
     // markup, not textContent), so the block's cleaned HTML travels too.
     queueEdit({
@@ -1730,6 +1895,7 @@ function boot() {
     showGrip(resizing ? resizing.el : hoverMedia);
     // The popup is viewport-fixed; scrolled away from its text it just lies.
     if (linkState) closeLinkbox(false);
+    if (els.formatbar.style.display !== "none") showFormatbar();
   };
   // getBoundingClientRect on every scroll event forces layout mid-scroll;
   // one reposition per frame is plenty.
@@ -1788,6 +1954,7 @@ function boot() {
         activate(msg.id, !!msg.scroll);
         break;
       case "eh:flush":
+        if (msg.reconcile) reconcile();
         flushSave();
         // Posted after the flushed eh:edit/eh:html messages, so when the
         // chrome sees it, everything pending has already been handed over.

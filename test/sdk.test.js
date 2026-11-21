@@ -362,3 +362,71 @@ test("shift-click adds a second image to one element comment", { skip }, async (
   assert.equal(last.anchor.selectors.length, 2);
   assert.ok(b.hasAttribute("data-eh-pick"));
 });
+
+test("Send reports the page as it looks now: a restored block is not deleted, a new paragraph keeps its own row", { skip }, async () => {
+  const { window, document, posts, fromChrome } = await bootSdk("<h2>TVC</h2><p>Intro.</p><video src=\"v.mp4\"></video><p>Fins.</p><p>Thrust.</p>");
+  const [intro, fins, thrust] = document.querySelectorAll("p");
+  const video = document.querySelector("video");
+  const sel = window.getSelection();
+  const select = (a, ao, b, bo) => {
+    const range = document.createRange();
+    range.setStart(a, ao);
+    range.setEnd(b, bo);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+
+  // A selection from the intro into "Fins." swallows the video; then a native ⌘Z puts it all back.
+  select(intro.firstChild, 3, fins.firstChild, 2);
+  intro.dispatchEvent(new window.Event("beforeinput", { bubbles: true }));
+  intro.textContent = "Intns.";
+  video.remove();
+  fins.remove();
+  intro.dispatchEvent(new window.Event("input", { bubbles: true }));
+  intro.textContent = "Intro.";
+  intro.after(video);
+  video.after(fins);
+
+  // Delete "Fins." and add a paragraph after "Thrust." (Enter makes a fresh <p>).
+  select(fins.firstChild, 0, fins.firstChild, 5);
+  fins.dispatchEvent(new window.Event("beforeinput", { bubbles: true }));
+  fins.remove();
+  fins.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const added = document.createElement("p");
+  added.textContent = "Brand new.";
+  thrust.after(added);
+  select(added.firstChild, 0, added.firstChild, 0);
+  added.dispatchEvent(new window.Event("input", { bubbles: true }));
+
+  fromChrome({ type: "eh:flush", reconcile: true });
+  const live = new Map();
+  for (const m of posts) {
+    const key = `${m.label}|${m.kind}`;
+    if (m.type === "eh:edit") live.set(key, m.after);
+    if (m.type === "eh:dropEdit") live.delete(key);
+  }
+  const labels = [...live.keys()];
+  assert.ok(!labels.some((k) => k.endsWith("|deleted") && live.get(k) === "" && /video|· p 1\|/.test(k)), `nothing restored is reported deleted: ${labels}`);
+  assert.ok(!labels.includes("TVC · p 1|edited"), "the intro is back to its original wording");
+  assert.ok(labels.includes("TVC · p 2|deleted"), "the fins paragraph is deleted");
+  assert.equal(live.get("TVC · new p|edited"), "Brand new.", "the new paragraph has its own row");
+  const placed = posts.filter((m) => m.type === "eh:edit" && m.label === "TVC · new p").at(-1);
+  assert.equal(placed.placed_after, "Thrust.", "and says where it sits");
+});
+
+test("shift-click inside the same block extends the text selection instead of picking blocks", { skip }, async () => {
+  const { window, document, posts } = await bootSdk("<h2>Arm</h2><p>Select a chunk of these words.</p>");
+  const p = document.querySelector("p");
+  p.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const range = document.createRange();
+  range.setStart(p.firstChild, 7);
+  range.setEnd(p.firstChild, 14);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  p.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, shiftKey: true }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const last = posts.filter((m) => m.type === "eh:compose").at(-1);
+  assert.equal(last.kind, "selection");
+  assert.equal(last.quote, "a chunk");
+});

@@ -136,7 +136,12 @@ One batch covers every page the user visited, grouped by file or localhost URL.
 - When `before_html`/`after_html` are present, the user changed formatting, not
   just words — bold, italic, underline, links. Use the HTML version to carry the
   formatting into the source, translated to its syntax (e.g. `<strong>` → `**`
-  in Markdown/MDX).
+  in Markdown/MDX). A highlight arrives as `<mark>`: keep it as `<mark>` in
+  MDX/HTML, or `==text==` only where the Markdown renderer supports it.
+- Rows are rebuilt from the live page when the user hits Send, so the batch
+  describes the page exactly as they left it. A row labeled `· new p` is a
+  paragraph the user added: it goes right after the block whose text starts
+  with `placed_after`, under the heading in its label.
 - A page with `kind: "url"` was edited directly in the review UI. Its `file`
   and `url` fields name the localhost route, not a writable file. Find the
   matching project source (such as MDX, TSX, or a template), apply every edit

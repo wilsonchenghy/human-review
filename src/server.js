@@ -407,6 +407,7 @@ export function createServer() {
           ...(e.before_html !== undefined && e.before_html !== e.before ? { before_html: e.before_html } : {}),
           ...(e.after_html !== undefined && e.after_html !== e.after ? { after_html: e.after_html } : {}),
           ...(e.kind === "moved" ? { moved_after: e.moved_after || "", moved_before: e.moved_before || "" } : {}),
+          ...(e.placed_after ? { placed_after: e.placed_after } : {}),
           ...(Array.isArray(e.staged_assets) && e.staged_assets.length ? { staged_assets: e.staged_assets } : {}),
           ...(e.truncated ? { truncated: true } : {}),
         })),
@@ -1019,6 +1020,7 @@ export function createServer() {
           const fields = [cap(body.before), cap(body.after), cap(body.before_html), cap(body.after_html)];
           const extra = {
             ...(kind === "moved" ? { moved_after: cap(body.moved_after) || "", moved_before: cap(body.moved_before) || "" } : {}),
+            ...(typeof body.placed_after === "string" ? { placed_after: cap(body.placed_after) } : {}),
             ...(stagedAssets.length ? { staged_assets: stagedAssets } : {}),
             ...(truncated ? { truncated: true } : {}),
           };

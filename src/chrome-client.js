@@ -125,7 +125,7 @@ async function rebootstrap() {
  * typing. The timeout covers a torn-down or never-booted frame.
  */
 let flushWaiter = null;
-function flushFrame() {
+function flushFrame({ reconcile = false } = {}) {
   return new Promise((resolve) => {
     const settle = () => {
       if (flushWaiter !== settle) return;
@@ -133,7 +133,7 @@ function flushFrame() {
       resolve();
     };
     flushWaiter = settle;
-    toFrame({ type: "eh:flush" });
+    toFrame({ type: "eh:flush", reconcile });
     setTimeout(settle, 400);
   });
 }
@@ -749,6 +749,7 @@ window.addEventListener("message", async (event) => {
             after_html: msg.after_html,
             moved_after: msg.moved_after,
             moved_before: msg.moved_before,
+            placed_after: msg.placed_after,
             staged_assets: msg.staged_assets,
           }),
         })).page;
@@ -763,6 +764,9 @@ window.addEventListener("message", async (event) => {
         ms: 8000,
         onAction: () => undoBlock(msg.label, msg.kind),
       });
+      break;
+    case "eh:dropEdit":
+      dropEditRow(String(msg.label || ""), String(msg.kind || ""));
       break;
     case "eh:undone":
       document.querySelectorAll(".toast").forEach((el) => el.remove());
@@ -865,6 +869,11 @@ $("composeText").addEventListener("keydown", (event) => {
 });
 
 $("send").addEventListener("click", async () => {
+  // The SDK holds keystrokes for EDIT_FLUSH_MS; without this a Send right
+  // after typing ships a batch missing the newest text. Reconcile rewrites
+  // every edited block's rows from the page as it looks right now.
+  await flushFrame({ reconcile: true });
+  await editChain.catch(() => {});
   try {
     await api(`/api/page/${state.key}/send`, {
       method: "POST",
